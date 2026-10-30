@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Room & Outdoor Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.5.0/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+<style>
+:root{color-scheme:dark;--bg:#0b1118;--panel:#121d28;--panel2:#1a2936;--line:#2b3b49;--text:#eef5fb;--muted:#9aabba;--blue:#55b8ff;--teal:#36d6c3;--gold:#e5c77c;--red:#ff7474}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:1120px;margin:auto;padding:28px 18px 50px}.top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+h1{font-size:clamp(22px,4vw,30px);margin:0;letter-spacing:.02em}.sub,.muted{color:var(--muted)}.pill{border:1px solid #245b49;background:#102b24;color:#8ee4bd;border-radius:999px;padding:5px 11px;font-size:12px}
+h2{font-size:15px;letter-spacing:.09em;margin:26px 0 12px;color:#dce8f1}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.card,.chartcard{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:17px;min-width:0}
+.label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.07em}.value{font-size:clamp(27px,4vw,36px);font-weight:650;margin:8px 0 2px}.unit{font-size:16px;color:var(--muted);font-weight:500}.icon{font-size:20px;margin-bottom:8px}.blue{color:var(--blue)}.teal{color:var(--teal)}.gold{color:var(--gold)}
+.meta{font-size:12px;color:var(--muted);margin-top:5px}.charts{display:grid;grid-template-columns:1fr 1fr;gap:14px}.charthead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}.charthead strong{font-size:15px}.legend{font-size:11px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+canvas{width:100%!important;height:270px!important}.status{padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--muted);margin-top:18px;font-size:13px}
+.controls{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.controls input{background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:9px 11px}
+button{background:#18354a;color:var(--text);border:1px solid #31536b;border-radius:8px;padding:9px 13px;cursor:pointer}button:hover{background:#214762}
+@media(max-width:760px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.charts{grid-template-columns:1fr}canvas{height:240px!important}}
+@media(max-width:390px){main{padding:20px 12px}.card{padding:13px}}
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <div><h1>ROOM &amp; OUTDOOR MONITOR</h1><div class="sub">Indoor sensor compared with local outdoor weather</div></div>
+    <span class="pill" id="overall">Connecting to data sources…</span>
+  </div>
+
+  <div class="controls">
+    <label class="muted" for="city">Outdoor location</label>
+    <input id="city" value="Manchester" aria-label="Outdoor town or city">
+    <button id="saveCity">Update location</button>
+    <button id="refresh">Refresh now</button>
+  </div>
+
+  <h2>INDOOR · ESP32 + SHT41</h2>
+  <section class="grid">
+    <article class="card"><div class="icon blue">🌡</div><div class="label">Room temperature</div><div class="value" id="inTemp">-- <span class="unit">°C</span></div><div class="meta" id="inTempTime">Waiting for sensor data</div></article>
+    <article class="card"><div class="icon teal">💧</div><div class="label">Room humidity</div><div class="value" id="inHum">-- <span class="unit">%</span></div><div class="meta" id="inHumTime">Waiting for sensor data</div></article>
+  </section>
+
+  <h2>OUTDOOR · LOCAL WEATHER SERVICE</h2>
+  <section class="grid">
+    <article class="card"><div class="icon gold">☁</div><div class="label">Outdoor temperature</div><div class="value" id="outTemp">-- <span class="unit">°C</span></div><div class="meta" id="outTempTime">Waiting for weather data</div></article>
+    <article class="card"><div class="icon gold">💧</div><div class="label">Outdoor humidity</div><div class="value" id="outHum">-- <span class="unit">%</span></div><div class="meta" id="outHumTime">Waiting for weather data</div></article>
+  </section>
+
+  <h2>TEMPERATURE HISTORY</h2>
+  <article class="chartcard">
+    <div class="charthead"><strong class="blue">Temperature comparison</strong><span class="unit">°C</span></div>
+    <div class="legend"><span><i class="dot" style="background:#55b8ff"></i>Indoor · SHT41</span><span><i class="dot" style="background:#e5c77c"></i>Outdoor · Weather</span></div>
+    <canvas id="tempChart" aria-label="Indoor and outdoor temperature history graph"></canvas>
+    <div class="meta">Older times are on the left; newer times are on the right. Outdoor line uses hourly weather observations/estimates.</div>
+  </article>
+
+  <h2>HUMIDITY HISTORY</h2>
+  <article class="chartcard">
+    <div class="charthead"><strong class="teal">Humidity comparison</strong><span class="unit">%</span></div>
+    <div class="legend"><span><i class="dot" style="background:#36d6c3"></i>Indoor · SHT41</span><span><i class="dot" style="background:#e5c77c"></i>Outdoor · Weather</span></div>
+    <canvas id="humChart" aria-label="Indoor and outdoor humidity history graph"></canvas>
+    <div class="meta">Older times are on the left; newer times are on the right. Missing readings are left blank, never invented.</div>
+  </article>
+
+  <div class="status" id="status">Waiting for data. The ThingSpeak channel must be public for this shareable version, or you must configure a read key locally.</div>
+  <div class="meta" style="margin-top:12px">Indoor data: ThingSpeak channel 3558556, fields 1 and 2. Outdoor data: Open-Meteo. Weather values are from the selected area's forecast/weather model, not a sensor inside your building.</div>
+</main>
+
+<script>
+// -------- CONFIGURATION --------
+const CHANNEL_ID = "3558556";
+// Leave blank if the ThingSpeak channel is PUBLIC.
+// For a PRIVATE channel, enter its READ API KEY here.
+// Do not publish a private read key in a public website.
+const READ_API_KEY = "";
+const HISTORY_HOURS = 24;
+const REFRESH_MS = 30000;
+
+let cityName = localStorage.getItem("outdoorCity") || "Manchester";
+document.getElementById("city").value = cityName;
+
+let tempChart, humChart;
+const fmtTime = value => new Date(value).toLocaleString([], {dateStyle:"medium",timeStyle:"short"});
+const setText = (id, value) => document.getElementById(id).textContent = value;
+
+function makeChart(canvasId, label, indoorColor, min, max) {
+  return new Chart(document.getElementById(canvasId), {
+    type:"line",
+    data:{datasets:[
+      {label:"Indoor · SHT41",data:[],borderColor:indoorColor,backgroundColor:indoorColor,
+       pointRadius:1.5,pointHoverRadius:4,borderWidth:2,tension:.18,spanGaps:false},
+      {label:"Outdoor · Weather",data:[],borderColor:"#e5c77c",backgroundColor:"#e5c77c",
+       pointRadius:2,pointHoverRadius:4,borderWidth:2,tension:.2,spanGaps:false}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,parsing:false,
+      interaction:{mode:"nearest",intersect:false},
+      plugins:{legend:{display:false},tooltip:{callbacks:{title(items){return items.length?fmtTime(items[0].parsed.x):""}}}},
+      scales:{
+        x:{type:"time",time:{tooltipFormat:"dd LLL yyyy, HH:mm",displayFormats:{hour:"HH:mm",day:"dd LLL"}},
+           ticks:{color:"#9aabba",maxRotation:0,autoSkip:true},grid:{color:"#253442"}},
+        y:{min,max,ticks:{color:"#9aabba"},grid:{color:"#253442"},title:{display:true,text:label,color:"#9aabba"}}
+      }
+    }
+  });
+}
+tempChart = makeChart("tempChart","Temperature (°C)","#55b8ff",undefined,undefined);
+humChart = makeChart("humChart","Relative humidity (%)","#36d6c3",0,100);
+
+async function getIndoor() {
+  let url = `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json?results=8000`;
+  if (READ_API_KEY) url += `&api_key=${encodeURIComponent(READ_API_KEY)}`;
+  const response = await fetch(url,{cache:"no-store"});
+  if (!response.ok) throw new Error(`ThingSpeak HTTP ${response.status}`);
+  const json = await response.json();
+  if (!Array.isArray(json.feeds)) throw new Error("ThingSpeak did not return feed data. Check channel privacy/read key.");
+  const cutoff = Date.now() - HISTORY_HOURS*60*60*1000;
+  return json.feeds.map(f=>({
+    x:Date.parse(f.created_at),
+    temp:f.field1 === null || f.field1 === "" ? null : Number(f.field1),
+    hum:f.field2 === null || f.field2 === "" ? null : Number(f.field2)
+  })).filter(p=>Number.isFinite(p.x) && p.x>=cutoff)
+    .sort((a,b)=>a.x-b.x);
+}
+
+async function getOutdoor() {
+  const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=1&language=en&format=json`;
+  const geoResponse = await fetch(geoUrl,{cache:"no-store"});
+  if (!geoResponse.ok) throw new Error("Could not look up outdoor location.");
+  const geo = await geoResponse.json();
+  if (!geo.results || !geo.results.length) throw new Error(`Location "${cityName}" not found. Try a nearby town or city.`);
+  const place = geo.results[0];
+  const params = new URLSearchParams({
+    latitude:place.latitude,longitude:place.longitude,
+    hourly:"temperature_2m,relative_humidity_2m",
+    current:"temperature_2m,relative_humidity_2m",
+    past_days:"1",forecast_days:"1",timezone:"Europe/London"
+  });
+  const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`,{cache:"no-store"});
+  if (!response.ok) throw new Error("Outdoor weather service could not be reached.");
+  const data = await response.json();
+  return {place,data};
+}
+
+function renderIndoor(rows) {
+  if (!rows.length) {
+    setText("inTemp","-- °C"); setText("inHum","-- %");
+    setText("inTempTime","No sensor readings in the last 24 hours");
+    setText("inHumTime","No sensor readings in the last 24 hours");
+    return;
+  }
+  const latest = rows[rows.length-1];
+  if (latest.temp !== null && Number.isFinite(latest.temp)) {
+    document.getElementById("inTemp").innerHTML = `${latest.temp.toFixed(2)} <span class="unit">°C</span>`;
+    setText("inTempTime","Last sensor reading: "+fmtTime(latest.x));
+  }
+  if (latest.hum !== null && Number.isFinite(latest.hum)) {
+    document.getElementById("inHum").innerHTML = `${latest.hum.toFixed(2)} <span class="unit">%</span>`;
+    setText("inHumTime","Last sensor reading: "+fmtTime(latest.x));
+  }
+}
+
+function renderOutdoor(weather) {
+  const {place,data}=weather, c=data.current;
+  if (!c) throw new Error("No current outdoor weather data returned.");
+  document.getElementById("outTemp").innerHTML = `${Number(c.temperature_2m).toFixed(1)} <span class="unit">°C</span>`;
+  document.getElementById("outHum").innerHTML = `${Number(c.relative_humidity_2m).toFixed(0)} <span class="unit">%</span>`;
+  const stamp = c.time ? fmtTime(c.time) : "Latest available";
+  setText("outTempTime",`${place.name}, ${place.country} · ${stamp}`);
+  setText("outHumTime",`${place.name}, ${place.country} · ${stamp}`);
+  const times=data.hourly.time;
+  const cutoff=Date.now()-HISTORY_HOURS*60*60*1000;
+  const outdoorTemp=[], outdoorHum=[];
+  times.forEach((t,i)=>{
+    const x=Date.parse(t);
+    if (!Number.isFinite(x) || x<cutoff || x>Date.now()+60*60*1000) return;
+    const tv=data.hourly.temperature_2m[i], hv=data.hourly.relative_humidity_2m[i];
+    if (tv!==null && tv!==undefined) outdoorTemp.push({x,y:Number(tv)});
+    if (hv!==null && hv!==undefined) outdoorHum.push({x,y:Number(hv)});
+  });
+  tempChart.data.datasets[1].data=outdoorTemp;
+  humChart.data.datasets[1].data=outdoorHum;
+}
+
+async function refreshAll() {
+  setText("overall","Updating…");
+  const messages=[];
+  try {
+    const rows=await getIndoor();
+    renderIndoor(rows);
+    tempChart.data.datasets[0].data=rows.filter(p=>p.temp!==null && Number.isFinite(p.temp)).map(p=>({x:p.x,y:p.temp}));
+    humChart.data.datasets[0].data=rows.filter(p=>p.hum!==null && Number.isFinite(p.hum)).map(p=>({x:p.x,y:p.hum}));
+    if (!rows.length) messages.push("No indoor ThingSpeak readings found in the last 24 hours.");
+    else if (Date.now()-rows[rows.length-1].x>5*60*1000) messages.push("Indoor sensor data is stale: last upload was over 5 minutes ago.");
+    else messages.push("Indoor sensor data connected.");
+  } catch(e) { messages.push("Indoor data error: "+e.message); }
+
+  try {
+    const weather=await getOutdoor();
+    renderOutdoor(weather);
+    messages.push("Outdoor weather connected.");
+  } catch(e) { messages.push("Outdoor weather error: "+e.message); }
+
+  tempChart.update(); humChart.update();
+  setText("status",messages.join(" "));
+  setText("overall",messages.every(m=>m.includes("connected"))?"Data connected":"Check data status");
+}
+
+document.getElementById("refresh").addEventListener("click",refreshAll);
+document.getElementById("saveCity").addEventListener("click",()=>{
+  const value=document.getElementById("city").value.trim();
+  if(!value) return;
+  cityName=value; localStorage.setItem("outdoorCity",cityName); refreshAll();
+});
+refreshAll();
+setInterval(refreshAll,REFRESH_MS);
+</script>
+</body>
+</html>
